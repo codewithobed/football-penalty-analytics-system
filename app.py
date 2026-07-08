@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, precision_recall_curve, auc
 
 from src.data_loader import load_data
 from src.preprocessing import clean_dataset, find_target_column, add_outcome_label
@@ -17,8 +17,9 @@ uploaded_file = st.sidebar.file_uploader("Upload your football penalty dataset",
 
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navigation", [
-    "Home", "Dataset Explorer", "Football EDA", "Model Training", "Model Evaluation",
-    "Prediction", "Explainability", "Data Quality Report", "Coach Insights", "Next Development Steps"
+    "Home", "Executive Dashboard", "Dataset Explorer", "Football EDA", "Model Training", "Model Evaluation",
+    "Advanced Analytics",
+    "Prediction", "Explainability", "Coach Report Generator", "Data Quality Report", "Coach Insights", "Next Development Steps"
 ])
 
 df = None
@@ -33,7 +34,7 @@ if page == "Home":
     st.markdown("""
     <style>
     .main-title {
-        font-size: 42px;
+        font-size: 44px;
         font-weight: 800;
         color: #0B6623;
         margin-bottom: 5px;
@@ -45,16 +46,28 @@ if page == "Home":
     }
     .info-box {
         background-color: #F3F8F4;
-        padding: 20px;
+        padding: 22px;
+        border-radius: 14px;
+        border-left: 7px solid #0B6623;
+        margin-bottom: 25px;
+        font-size: 16px;
+        line-height: 1.6;
+    }
+    .section-card {
+        background-color: #FFFFFF;
+        padding: 18px;
         border-radius: 12px;
-        border-left: 6px solid #0B6623;
-        margin-bottom: 20px;
+        border: 1px solid #E8E8E8;
+        margin-bottom: 12px;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="main-title">⚽ Football Penalty Analytics System</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Machine learning decision-support dashboard for football coaches and analysts</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="subtitle">Machine learning decision-support dashboard for football coaches and analysts</div>',
+        unsafe_allow_html=True
+    )
 
     st.markdown("""
     <div class="info-box">
@@ -93,7 +106,6 @@ if page == "Home":
     st.markdown("---")
 
     st.subheader("System Workflow")
-
     w1, w2, w3, w4 = st.columns(4)
     w1.info("1️⃣ Upload football penalty dataset")
     w2.info("2️⃣ Explore data and visualisations")
@@ -101,7 +113,6 @@ if page == "Home":
     w4.info("4️⃣ Predict and explain outcomes")
 
     st.subheader("Core Capabilities")
-
     c1, c2, c3 = st.columns(3)
 
     with c1:
@@ -118,9 +129,143 @@ if page == "Home":
         st.success("🎯 Outcome prediction")
         st.success("🧠 Explainability")
         st.success("📋 Coach insights")
-    st.title("⚽ Football Penalty Analytics System")
-    st.write("A decision-support dashboard for football coaches and analysts.")
-    st.info("Workflow: upload dataset → explore data → train models → evaluate → predict → explain.")
+
+elif page == "Executive Dashboard":
+    st.title("🏟️ Executive Coach Dashboard")
+    st.write("A coach-focused summary of penalty data, machine learning performance, and prediction outputs.")
+
+    if df is None:
+        st.warning("Upload your football penalty dataset from the sidebar to activate the executive dashboard.")
+    else:
+        target_col = find_target_column(df)
+
+        if not target_col:
+            st.error("No target column detected. The dashboard requires an Outcome column.")
+        else:
+            temp = add_outcome_label(df, target_col)
+
+            total_penalties = int(temp["Outcome_Label"].notna().sum())
+            goals = int((temp["Outcome_Label"] == "Goal").sum())
+            misses = int((temp["Outcome_Label"] == "Miss").sum())
+            conversion_rate = (goals / total_penalties * 100) if total_penalties else 0
+
+            best_model_name = "Train models first"
+            best_accuracy = "-"
+            best_f1 = "-"
+
+            if "results_df" in st.session_state:
+                results_df = st.session_state["results_df"]
+                best_row = results_df.sort_values(["F1-score", "ROC-AUC", "Accuracy"], ascending=False).iloc[0]
+                best_model_name = best_row["Model"]
+                best_accuracy = f"{best_row['Accuracy']:.3f}"
+                best_f1 = f"{best_row['F1-score']:.3f}"
+
+            latest_prediction = "No prediction yet"
+            latest_confidence = "-"
+
+            if "last_prediction" in st.session_state:
+                latest_prediction = st.session_state["last_prediction"]["label"]
+                latest_confidence = f"{st.session_state['last_prediction']['probability_goal'] * 100:.1f}%"
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("📊 Total Penalties", total_penalties)
+            k2.metric("🥅 Conversion Rate", f"{conversion_rate:.1f}%")
+            k3.metric("🤖 Best Model", best_model_name)
+            k4.metric("🎯 Latest Prediction", latest_prediction)
+
+            k5, k6, k7, k8 = st.columns(4)
+            k5.metric("✅ Goals", goals)
+            k6.metric("❌ Misses", misses)
+            k7.metric("📈 Best Accuracy", best_accuracy)
+            k8.metric("🔥 Best F1-score", best_f1)
+
+            st.markdown("---")
+
+            left_col, right_col = st.columns(2)
+
+            with left_col:
+                st.subheader("Goal vs Miss Distribution")
+                outcome_counts = temp["Outcome_Label"].value_counts().reset_index()
+                outcome_counts.columns = ["Outcome", "Count"]
+                fig = px.pie(
+                    outcome_counts,
+                    names="Outcome",
+                    values="Count",
+                    title="Penalty Outcome Distribution"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with right_col:
+                st.subheader("Model Performance Summary")
+                if "results_df" in st.session_state:
+                    chart_df = st.session_state["results_df"].copy()
+                    chart_df = chart_df.melt(
+                        id_vars="Model",
+                        value_vars=["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"],
+                        var_name="Metric",
+                        value_name="Score"
+                    )
+                    fig = px.bar(
+                        chart_df,
+                        x="Model",
+                        y="Score",
+                        color="Metric",
+                        barmode="group",
+                        title="Model Comparison Across Metrics"
+                    )
+                    fig.update_layout(yaxis_range=[0, 1])
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Train models on the Model Training page to display model comparison.")
+
+            st.markdown("---")
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.subheader("Top Coach Insights")
+                for col in ["Kicker_Foot", "Kicker_Side", "Goalie_Side", "Team_Type", "Country"]:
+                    if col in temp.columns:
+                        rates = (
+                            temp.groupby(col)["Outcome_Label"]
+                            .apply(lambda x: (x == "Goal").mean() * 100)
+                            .sort_values(ascending=False)
+                        )
+                        if len(rates):
+                            st.info(
+                                f"Highest observed goal rate by **{col}**: "
+                                f"**{rates.index[0]}** ({rates.iloc[0]:.1f}%)."
+                            )
+
+            with c2:
+                st.subheader("Latest Prediction Summary")
+                if "last_prediction" in st.session_state:
+                    lp = st.session_state["last_prediction"]
+                    st.success(f"Prediction: **{lp['label']}**")
+                    st.metric("Probability of Goal", f"{lp['probability_goal'] * 100:.1f}%")
+
+                    if lp["explanation"] is not None and not lp["explanation"].empty:
+                        local_exp = lp["explanation"].copy()
+                        local_exp["Current Value"] = local_exp["Current Value"].astype(str)
+                        st.dataframe(
+                            local_exp[["Feature", "Current Value", "Baseline Comparison Impact"]].head(5),
+                            use_container_width=True
+                        )
+                else:
+                    st.info("Make a prediction on the Prediction page to display latest prediction details.")
+
+            st.markdown("---")
+            st.subheader("Coach Recommendation")
+            if "results_df" in st.session_state:
+                st.success(
+                    f"The current best-performing model is **{best_model_name}**. "
+                    "This recommendation is based on F1-score first, followed by ROC-AUC and Accuracy, "
+                    "which is more reliable than selecting a model using accuracy alone."
+                )
+            else:
+                st.warning(
+                    "Train the machine learning models to generate a coach-ready model recommendation."
+                )
 
 elif page == "Dataset Explorer":
     st.title("📊 Dataset Explorer")
@@ -258,6 +403,150 @@ elif page == "Model Evaluation":
             fig.update_layout(yaxis={"categoryorder": "total ascending"})
             st.plotly_chart(fig, use_container_width=True)
 
+elif page == "Advanced Analytics":
+    st.title("📈 Advanced Model Analytics")
+    st.write(
+        "This page provides deeper model evaluation using ROC curves, Precision–Recall curves, "
+        "model ranking and coach-friendly interpretation."
+    )
+
+    if "trained_models" not in st.session_state or "results_df" not in st.session_state:
+        st.warning("Train the models first on the Model Training page.")
+    else:
+        results_df = st.session_state["results_df"].copy()
+        trained_models = st.session_state["trained_models"]
+
+        st.subheader("🏆 Model Ranking")
+        ranking_df = results_df.sort_values(
+            ["F1-score", "ROC-AUC", "Accuracy"],
+            ascending=False
+        ).reset_index(drop=True)
+        ranking_df.insert(0, "Rank", ranking_df.index + 1)
+
+        display_ranking = ranking_df.copy()
+        for metric in ["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"]:
+            display_ranking[metric] = display_ranking[metric].apply(
+                lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+            )
+        st.dataframe(display_ranking, use_container_width=True)
+
+        best = ranking_df.iloc[0]
+        st.success(
+            f"Best overall model: **{best['Model']}**. "
+            "The ranking prioritises F1-score, then ROC-AUC, then accuracy."
+        )
+
+        st.markdown("---")
+        st.subheader("📊 Metric Comparison")
+
+        metric_chart_df = results_df.melt(
+            id_vars="Model",
+            value_vars=["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"],
+            var_name="Metric",
+            value_name="Score"
+        )
+
+        fig = px.bar(
+            metric_chart_df,
+            x="Model",
+            y="Score",
+            color="Metric",
+            barmode="group",
+            title="Model Performance Across Evaluation Metrics"
+        )
+        fig.update_layout(yaxis_range=[0, 1])
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+
+        selected_model = st.selectbox(
+            "Select model for advanced curve analysis",
+            list(trained_models.keys()),
+            index=list(trained_models.keys()).index(best["Model"])
+        )
+
+        item = trained_models[selected_model]
+        y_test = item["y_test"]
+        y_proba = item["y_proba"]
+
+        if y_proba is None:
+            st.warning("Probability scores are not available for this model.")
+        else:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("ROC Curve")
+                fpr, tpr, _ = roc_curve(y_test, y_proba)
+                roc_auc = auc(fpr, tpr)
+                roc_df = pd.DataFrame({
+                    "False Positive Rate": fpr,
+                    "True Positive Rate": tpr
+                })
+
+                fig = px.line(
+                    roc_df,
+                    x="False Positive Rate",
+                    y="True Positive Rate",
+                    title=f"ROC Curve - {selected_model} (AUC = {roc_auc:.3f})"
+                )
+                fig.add_shape(
+                    type="line",
+                    x0=0, y0=0, x1=1, y1=1,
+                    line=dict(dash="dash")
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                st.subheader("Precision–Recall Curve")
+                precision, recall, _ = precision_recall_curve(y_test, y_proba)
+                pr_auc = auc(recall, precision)
+                pr_df = pd.DataFrame({
+                    "Recall": recall,
+                    "Precision": precision
+                })
+
+                fig = px.line(
+                    pr_df,
+                    x="Recall",
+                    y="Precision",
+                    title=f"Precision–Recall Curve - {selected_model} (AUC = {pr_auc:.3f})"
+                )
+                fig.update_layout(yaxis_range=[0, 1], xaxis_range=[0, 1])
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("Coach-Friendly Interpretation")
+
+            if roc_auc >= 0.75:
+                st.success(
+                    f"The ROC-AUC of {roc_auc:.3f} suggests that the model has strong ability "
+                    "to distinguish between goals and misses."
+                )
+            elif roc_auc >= 0.60:
+                st.warning(
+                    f"The ROC-AUC of {roc_auc:.3f} suggests moderate discrimination. "
+                    "The model may be useful as decision support but should not be used alone."
+                )
+            else:
+                st.error(
+                    f"The ROC-AUC of {roc_auc:.3f} suggests weak discrimination. "
+                    "More data, better features or model tuning may be needed."
+                )
+
+            if best["Model"] == selected_model:
+                st.info(
+                    "This model is currently recommended because it performs best using the combined "
+                    "ranking logic: F1-score first, then ROC-AUC and Accuracy."
+                )
+
+        st.download_button(
+            "Download advanced model ranking CSV",
+            ranking_df.to_csv(index=False).encode("utf-8"),
+            "advanced_model_ranking.csv",
+            "text/csv"
+        )
+
+
 elif page == "Prediction":
     st.title("🎯 Penalty Outcome Prediction")
     if df is None:
@@ -287,6 +576,16 @@ elif page == "Prediction":
                 "input": input_df,
                 "explanation": explanation_df
             }
+
+            if "prediction_history" not in st.session_state:
+                st.session_state["prediction_history"] = []
+
+            st.session_state["prediction_history"].append({
+                "Model": selected_model,
+                "Predicted Outcome": label,
+                "Probability of Goal": probability_goal,
+                "Confidence (%)": round(probability_goal * 100, 1)
+            })
 
             if label == "Goal":
                 st.success("Predicted Outcome: GOAL")
@@ -327,6 +626,17 @@ elif page == "Prediction":
             report = downloadable_prediction_report(selected_model, label, probability_goal, input_df, explanation_df)
             st.download_button("Download prediction report", report, "prediction_report.txt", "text/plain")
 
+            if "prediction_history" in st.session_state and st.session_state["prediction_history"]:
+                st.subheader("Prediction History")
+                history_df = pd.DataFrame(st.session_state["prediction_history"])
+                st.dataframe(history_df, use_container_width=True)
+                st.download_button(
+                    "Download prediction history CSV",
+                    history_df.to_csv(index=False).encode("utf-8"),
+                    "prediction_history.csv",
+                    "text/csv"
+                )
+
 elif page == "Explainability":
     st.title("🧠 Explainability")
     if "trained_models" not in st.session_state:
@@ -352,6 +662,175 @@ elif page == "Explainability":
                 st.dataframe(lp["explanation"], use_container_width=True)
         else:
             st.info("Make a prediction first to see local explanation details.")
+
+elif page == "Coach Report Generator":
+    st.title("📄 Coach Report Generator")
+    st.write(
+        "Generate a downloadable coach-focused report containing dataset summary, model performance, "
+        "latest prediction, explainability summary, and practical recommendations."
+    )
+
+    if df is None:
+        st.warning("Upload your dataset first.")
+    else:
+        target_col = find_target_column(df)
+
+        if not target_col:
+            st.error("No target column detected. The report requires an Outcome column.")
+        else:
+            temp = add_outcome_label(df, target_col)
+
+            total_penalties = int(temp["Outcome_Label"].notna().sum())
+            goals = int((temp["Outcome_Label"] == "Goal").sum())
+            misses = int((temp["Outcome_Label"] == "Miss").sum())
+            conversion_rate = (goals / total_penalties * 100) if total_penalties else 0
+
+            report_lines = []
+            report_lines.append("FOOTBALL PENALTY ANALYTICS SYSTEM")
+            report_lines.append("Coach Decision-Support Report")
+            report_lines.append("=" * 55)
+            report_lines.append("")
+            report_lines.append("1. DATASET SUMMARY")
+            report_lines.append(f"Total penalties analysed: {total_penalties}")
+            report_lines.append(f"Goals scored: {goals}")
+            report_lines.append(f"Misses / saves: {misses}")
+            report_lines.append(f"Goal conversion rate: {conversion_rate:.1f}%")
+            report_lines.append("")
+
+            st.subheader("Dataset Summary")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Penalties", total_penalties)
+            c2.metric("Goals", goals)
+            c3.metric("Misses", misses)
+            c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+
+            st.markdown("---")
+            st.subheader("Model Performance Summary")
+
+            if "results_df" in st.session_state:
+                results_df = st.session_state["results_df"].copy()
+                best = results_df.sort_values(["F1-score", "ROC-AUC", "Accuracy"], ascending=False).iloc[0]
+
+                st.success(
+                    f"Best model: **{best['Model']}** "
+                    f"(F1-score: {best['F1-score']:.3f}, "
+                    f"ROC-AUC: {best['ROC-AUC']:.3f}, "
+                    f"Accuracy: {best['Accuracy']:.3f})"
+                )
+
+                display_results = results_df.copy()
+                for metric in ["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"]:
+                    display_results[metric] = display_results[metric].apply(
+                        lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+                    )
+                st.dataframe(display_results, use_container_width=True)
+
+                report_lines.append("2. MACHINE LEARNING MODEL PERFORMANCE")
+                report_lines.append(f"Recommended model: {best['Model']}")
+                report_lines.append(f"Accuracy: {best['Accuracy']:.3f}")
+                report_lines.append(f"Precision: {best['Precision']:.3f}")
+                report_lines.append(f"Recall: {best['Recall']:.3f}")
+                report_lines.append(f"F1-score: {best['F1-score']:.3f}")
+                report_lines.append(f"ROC-AUC: {best['ROC-AUC']:.3f}")
+                report_lines.append("")
+                report_lines.append("Model comparison table:")
+                report_lines.append(results_df.to_string(index=False))
+                report_lines.append("")
+            else:
+                st.warning("Train the models first to include model performance in the report.")
+                report_lines.append("2. MACHINE LEARNING MODEL PERFORMANCE")
+                report_lines.append("Models have not yet been trained.")
+                report_lines.append("")
+
+            st.markdown("---")
+            st.subheader("Latest Prediction Summary")
+
+            if "last_prediction" in st.session_state:
+                lp = st.session_state["last_prediction"]
+                st.success(f"Latest prediction: **{lp['label']}**")
+                st.metric("Probability of Goal", f"{lp['probability_goal'] * 100:.1f}%")
+
+                report_lines.append("3. LATEST PREDICTION")
+                report_lines.append(f"Predicted outcome: {lp['label']}")
+                report_lines.append(f"Probability of Goal: {lp['probability_goal'] * 100:.1f}%")
+                report_lines.append("")
+
+                if lp["explanation"] is not None and not lp["explanation"].empty:
+                    local_exp = lp["explanation"].copy()
+                    local_exp["Current Value"] = local_exp["Current Value"].astype(str)
+                    st.write("Top local explanation factors:")
+                    st.dataframe(
+                        local_exp[["Feature", "Current Value", "Baseline Comparison Impact"]].head(10),
+                        use_container_width=True
+                    )
+
+                    report_lines.append("4. LOCAL EXPLAINABILITY SUMMARY")
+                    report_lines.append(
+                        local_exp[
+                            ["Feature", "Current Value", "Baseline Comparison Impact"]
+                        ].head(10).to_string(index=False)
+                    )
+                    report_lines.append("")
+            else:
+                st.info("Make a prediction first to include prediction details in the report.")
+                report_lines.append("3. LATEST PREDICTION")
+                report_lines.append("No prediction has been generated yet.")
+                report_lines.append("")
+
+            st.markdown("---")
+            st.subheader("Coach-Focused Recommendations")
+
+            recommendations = []
+
+            if conversion_rate >= 80:
+                recommendations.append(
+                    "The dataset shows a high overall conversion rate, suggesting that successful penalties dominate the sample."
+                )
+            elif conversion_rate >= 60:
+                recommendations.append(
+                    "The dataset shows a moderate conversion rate, so coaches should examine contextual factors linked to missed penalties."
+                )
+            else:
+                recommendations.append(
+                    "The dataset shows a relatively low conversion rate, suggesting a need for technical and tactical review."
+                )
+
+            for col in ["Kicker_Foot", "Kicker_Side", "Goalie_Side", "Team_Type", "Country"]:
+                if col in temp.columns:
+                    rates = (
+                        temp.groupby(col)["Outcome_Label"]
+                        .apply(lambda x: (x == "Goal").mean() * 100)
+                        .sort_values(ascending=False)
+                    )
+                    if len(rates):
+                        recommendations.append(
+                            f"The strongest observed goal rate by {col} is {rates.index[0]} ({rates.iloc[0]:.1f}%)."
+                        )
+
+            if "results_df" in st.session_state:
+                recommendations.append(
+                    "Model selection should be justified using F1-score, ROC-AUC and accuracy rather than accuracy alone."
+                )
+
+            for rec in recommendations:
+                st.info(rec)
+
+            report_lines.append("5. COACH RECOMMENDATIONS")
+            for i, rec in enumerate(recommendations, 1):
+                report_lines.append(f"{i}. {rec}")
+
+            report_lines.append("")
+            report_lines.append("Note: This report is intended to support coaching and analysis decisions, not replace expert judgement.")
+
+            report_text = "\n".join(report_lines)
+
+            st.download_button(
+                "Download Coach Report (.txt)",
+                report_text.encode("utf-8"),
+                "coach_report.txt",
+                "text/plain"
+            )
+
 
 elif page == "Data Quality Report":
     st.title("🧹 Data Quality Report")
