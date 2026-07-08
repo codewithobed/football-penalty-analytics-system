@@ -1,61 +1,28 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from sklearn.metrics import confusion_matrix, classification_report, roc_curve, precision_recall_curve, auc
 
 from src.preprocessing import find_target_column, add_outcome_label
-from src.eda import safe_col, football_chart
-from src.training import train_models
-from src.evaluation import get_feature_importance
-from src.prediction import build_prediction_form, local_explanation, downloadable_prediction_report
+
 
 def render_home(df):
-    st.markdown("""
-    <style>
-    .main-title {
-        font-size: 44px;
-        font-weight: 800;
-        color: #0B6623;
-        margin-bottom: 5px;
-    }
-    .subtitle {
-        font-size: 20px;
-        color: #555;
-        margin-bottom: 25px;
-    }
-    .info-box {
-        background-color: #F3F8F4;
-        padding: 22px;
-        border-radius: 14px;
-        border-left: 7px solid #0B6623;
-        margin-bottom: 25px;
-        font-size: 16px;
-        line-height: 1.6;
-    }
-    .section-card {
-        background-color: #FFFFFF;
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #E8E8E8;
-        margin-bottom: 12px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<div class="main-title">⚽ Football Penalty Analytics System</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="subtitle">Machine learning decision-support dashboard for football coaches and analysts</div>',
-        unsafe_allow_html=True
+        """
+        <div style="
+            background: linear-gradient(135deg, #0B6623 0%, #102A43 100%);
+            padding: 34px;
+            border-radius: 20px;
+            color: white;
+            margin-bottom: 28px;
+        ">
+            <h1 style="color:white; margin-bottom: 8px;">⚽ Football Penalty Analytics System</h1>
+            <p style="font-size:19px; margin-bottom: 0;">
+                A machine learning decision-support platform for football coaches, analysts and performance teams.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-    st.markdown("""
-    <div class="info-box">
-    This system allows coaches and sports analysts to upload football penalty data, explore performance patterns,
-    train machine learning models, predict penalty outcomes, and interpret model decisions using explainability tools.
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3, col4 = st.columns(4)
 
     if df is not None:
         target_col = find_target_column(df)
@@ -67,44 +34,116 @@ def render_home(df):
             misses = int((temp["Outcome_Label"] == "Miss").sum())
             conversion_rate = (goals / total_penalties * 100) if total_penalties else 0
         else:
+            temp = df.copy()
             total_penalties = len(df)
             goals = 0
             misses = 0
             conversion_rate = 0
 
-        col1.metric("Total Penalties", total_penalties)
-        col2.metric("Goals", goals)
-        col3.metric("Misses", misses)
-        col4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("📊 Total Penalties", total_penalties)
+        k2.metric("🥅 Goals", goals)
+        k3.metric("❌ Misses", misses)
+        k4.metric("📈 Conversion Rate", f"{conversion_rate:.1f}%")
     else:
-        col1.metric("Total Penalties", "Upload data")
-        col2.metric("Goals", "-")
-        col3.metric("Misses", "-")
-        col4.metric("Conversion Rate", "-")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("📊 Total Penalties", "Upload data")
+        k2.metric("🥅 Goals", "-")
+        k3.metric("❌ Misses", "-")
+        k4.metric("📈 Conversion Rate", "-")
 
     st.markdown("---")
 
-    st.subheader("System Workflow")
-    w1, w2, w3, w4 = st.columns(4)
-    w1.info("1️⃣ Upload football penalty dataset")
-    w2.info("2️⃣ Explore data and visualisations")
-    w3.info("3️⃣ Train and compare ML models")
-    w4.info("4️⃣ Predict and explain outcomes")
+    left, right = st.columns([1.2, 1])
 
-    st.subheader("Core Capabilities")
-    c1, c2, c3 = st.columns(3)
+    with left:
+        st.subheader("🎯 Project Purpose")
+        st.markdown(
+            """
+            <div class="info-box">
+            This software artefact supports football penalty analysis by combining dataset exploration,
+            machine learning model training, prediction, explainability and coach-focused reporting.
+            It is designed to help users understand not only whether a penalty is likely to be scored,
+            but also which match and player factors contribute to that prediction.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    with c1:
-        st.success("📊 Dataset exploration")
-        st.success("📈 Football-specific EDA")
-        st.success("🧹 Data quality checks")
+        st.subheader("🧭 System Workflow")
+        w1, w2 = st.columns(2)
+        w1.success("1️⃣ Upload or select penalty dataset")
+        w2.success("2️⃣ Explore football-specific patterns")
+        w3, w4 = st.columns(2)
+        w3.success("3️⃣ Train and compare ML models")
+        w4.success("4️⃣ Predict, explain and report outcomes")
 
-    with c2:
-        st.success("🤖 ML model training")
-        st.success("📉 Model evaluation")
-        st.success("🏆 Best model selection")
+    with right:
+        st.subheader("✅ Supervisor Requirements Covered")
+        st.info("Upload/select football penalty data")
+        st.info("View dataset summaries and EDA")
+        st.info("Run predictions with confidence")
+        st.info("Evaluate models beyond accuracy")
+        st.info("Explain important prediction factors")
+        st.info("Generate coach-focused PDF reports")
 
-    with c3:
-        st.success("🎯 Outcome prediction")
-        st.success("🧠 Explainability")
-        st.success("📋 Coach insights")
+    if df is not None and find_target_column(df):
+        st.markdown("---")
+        st.subheader("📊 Quick Dataset Snapshot")
+
+        temp = add_outcome_label(df, find_target_column(df))
+        outcome_counts = temp["Outcome_Label"].value_counts().reset_index()
+        outcome_counts.columns = ["Outcome", "Count"]
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            fig = px.pie(
+                outcome_counts,
+                names="Outcome",
+                values="Count",
+                title="Goal vs Miss Distribution",
+                hole=0.35,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            if "Country" in temp.columns:
+                country_counts = temp["Country"].astype(str).value_counts().head(8).reset_index()
+                country_counts.columns = ["Country", "Penalties"]
+                fig = px.bar(
+                    country_counts,
+                    x="Country",
+                    y="Penalties",
+                    title="Top Countries in Dataset",
+                    text="Penalties",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Country column not available for country-level overview.")
+
+    st.markdown("---")
+    st.subheader("🚀 Application Modules")
+
+    m1, m2, m3 = st.columns(3)
+
+    with m1:
+        st.success("📊 Dataset Explorer")
+        st.write("Inspect rows, columns, missing values and target labels.")
+
+        st.success("📈 Football EDA")
+        st.write("Analyse penalty outcomes, kicker foot, goalkeeper side and match context.")
+
+    with m2:
+        st.success("🤖 Model Training")
+        st.write("Train and compare Logistic Regression, Decision Tree, Random Forest and Gradient Boosting.")
+
+        st.success("📉 Advanced Analytics")
+        st.write("Review ROC curves, precision–recall curves and model ranking.")
+
+    with m3:
+        st.success("🎯 Prediction")
+        st.write("Predict penalty outcome and confidence score.")
+
+        st.success("📄 Coach Report")
+        st.write("Generate downloadable PDF and text reports for coaching use.")

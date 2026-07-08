@@ -2,7 +2,7 @@ import streamlit as st
 
 from src.data_loader import load_data
 from src.preprocessing import clean_dataset
-
+from src.ui_styles import apply_global_styles, footer
 from pages_app.home import render_home
 from pages_app.executive_dashboard import render_executive_dashboard
 from pages_app.dataset_explorer import render_dataset_explorer
@@ -18,6 +18,7 @@ from pages_app.coach_insights import render_coach_insights
 from pages_app.next_steps import render_next_steps
 
 st.set_page_config(page_title="Football Penalty Analytics System", page_icon="⚽", layout="wide")
+apply_global_styles()
 
 st.sidebar.title("📁 Dataset")
 uploaded_file = st.sidebar.file_uploader("Upload your football penalty dataset", type=["csv", "xlsx", "xls"])
@@ -64,3 +65,4 @@ PAGE_RENDERERS = {
 }
 
 PAGE_RENDERERS[page]()
+footer()
